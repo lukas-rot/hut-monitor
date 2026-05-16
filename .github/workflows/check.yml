@@ -1,0 +1,53 @@
+name: Hut Saturday Monitor
+
+on:
+  schedule:
+    # Every hour at :07 (avoid the top-of-hour rush on GH runners)
+    - cron: "7 * * * *"
+  workflow_dispatch:  # allows manual triggering from the GitHub UI
+
+permissions:
+  contents: write  # needed so we can commit state.json back to the repo
+
+concurrency:
+  group: hut-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Run monitor
+        env:
+          HUT_ID: "150"
+          HORIZON_DAYS: "365"
+          MIN_BEDS: "1"
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+        run: python monitor.py
+
+      - name: Persist state
+        run: |
+          if [[ -n $(git status --porcelain state.json) ]]; then
+            git config user.name "hut-monitor-bot"
+            git config user.email "actions@github.com"
+            git add state.json
+            git commit -m "update state $(date -u +%FT%TZ)"
+            git push
+          fi
